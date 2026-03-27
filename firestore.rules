@@ -1,7 +1,43 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper functions
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (matches request.auth.uid)
+    // Fields:
+    //   - uid: string (required)
+    //   - email: string (required)
+    //   - displayName: string (optional)
+    //   - photoURL: string (optional)
+    //   - hasCompletedOnboarding: bool (required)
+    //   - onboardingData: map (optional)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: users/{userId}/metrics
+    // Document ID: 'current'
+    // Fields:
+    //   - sleepHours: number (required, 0-24)
+    //   - dailySteps: number (required, >=0)
+    //   - heartRate: number (required, 30-220)
+    //   - meetings: number (required, >=0)
+    //   - screenTime: number (required, 0-24)
+    //   - focusTime: number (required, 0-24)
+    //   - emailsSent: number (required, >=0)
+    //   - lastUpdated: timestamp (required)
+    //
+    // Collection: users/{userId}/history
+    // Document ID: {date} (YYYY-MM-DD)
+    // Fields: Same as metrics
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
     function isAuthenticated() {
       return request.auth != null;
     }
@@ -10,18 +46,66 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // User profile rules
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "rohitchennam1@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string &&
+        (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'hasCompletedOnboarding']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.hasCompletedOnboarding is bool &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+             (!('onboardingData' in data) || data.onboardingData is map);
+    }
+
+    function isValidMetrics(data) {
+      return data.keys().hasAll(['sleepHours', 'dailySteps', 'heartRate', 'meetings', 'screenTime', 'focusTime', 'emailsSent', 'lastUpdated']) &&
+             data.sleepHours is number && data.sleepHours >= 0 && data.sleepHours <= 24 &&
+             data.dailySteps is number && data.dailySteps >= 0 && data.dailySteps < 100000 &&
+             data.heartRate is number && data.heartRate >= 30 && data.heartRate <= 220 &&
+             data.meetings is number && data.meetings >= 0 && data.meetings <= 50 &&
+             data.screenTime is number && data.screenTime >= 0 && data.screenTime <= 24 &&
+             data.focusTime is number && data.focusTime >= 0 && data.focusTime <= 24 &&
+             data.emailsSent is number && data.emailsSent >= 0 && data.emailsSent < 5000;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
     match /users/{userId} {
-      allow read, write: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && !('role' in request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && 
+                      (request.resource.data.role == resource.data.role || (!('role' in resource.data) && !('role' in request.resource.data))) || 
+                      isAdmin();
       
-      // Metrics subcollection rules
-      match /metrics/{document=**} {
-        allow read, write: if isOwner(userId);
+      match /metrics/{document} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId) && isValidMetrics(request.resource.data);
       }
       
-      // History subcollection rules
-      match /history/{document=**} {
-        allow read, write: if isOwner(userId);
+      match /history/{document} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow write: if isOwner(userId) && isValidMetrics(request.resource.data);
       }
     }
   }

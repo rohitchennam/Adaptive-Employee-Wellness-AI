@@ -33,6 +33,7 @@ import { getWellnessAdvice } from './services/gemini';
 import { auth, db, signInWithGoogle, logout } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot, setDoc, serverTimestamp, getDoc, updateDoc } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from './lib/error-handler';
 
 // --- Components ---
 
@@ -493,7 +494,7 @@ const WellnessTracker = ({ metrics, setMetrics, user }: { metrics: WellnessMetri
         const historyRef = doc(db, 'users', user.uid, 'history', dateStr);
         await setDoc(historyRef, updatedMetrics);
       } catch (error) {
-        console.error("Failed to save metrics to Firestore", error);
+        handleFirestoreError(error, OperationType.WRITE, `users/${user.uid}/metrics/current`);
       }
     }
 
@@ -806,27 +807,32 @@ export default function App() {
       if (currentUser) {
         // Create user doc if it doesn't exist
         const userRef = doc(db, 'users', currentUser.uid);
-        const userSnap = await getDoc(userRef);
-        
-        if (!userSnap.exists()) {
-          await setDoc(userRef, {
-            uid: currentUser.uid,
-            email: currentUser.email,
-            displayName: currentUser.displayName,
-            photoURL: currentUser.photoURL,
-            hasCompletedOnboarding: false,
-            lastLogin: serverTimestamp()
-          });
-        } else {
-          await updateDoc(userRef, { lastLogin: serverTimestamp() });
-        }
-
-        // Listen to profile changes
-        onSnapshot(userRef, (snap) => {
-          if (snap.exists()) {
-            setProfile(snap.data() as UserProfile);
+        try {
+          const userSnap = await getDoc(userRef);
+          
+          if (!userSnap.exists()) {
+            await setDoc(userRef, {
+              uid: currentUser.uid,
+              email: currentUser.email,
+              displayName: currentUser.displayName,
+              photoURL: currentUser.photoURL,
+              hasCompletedOnboarding: false,
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp()
+            });
+          } else {
+            await updateDoc(userRef, { lastLogin: serverTimestamp() });
           }
-        });
+
+          // Listen to profile changes
+          onSnapshot(userRef, (snap) => {
+            if (snap.exists()) {
+              setProfile(snap.data() as UserProfile);
+            }
+          }, (error) => handleFirestoreError(error, OperationType.GET, `users/${currentUser.uid}`));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, `users/${currentUser.uid}`);
+        }
 
         // If we were on landing page and just logged in, move to dashboard (or onboarding)
         if (activeTab === 'landing') {
@@ -849,7 +855,7 @@ export default function App() {
       });
       setActiveTab('dashboard');
     } catch (error) {
-      console.error("Failed to save onboarding data", error);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${user.uid}`);
     }
   };
 
@@ -877,7 +883,7 @@ export default function App() {
       if (doc.exists()) {
         setMetrics(doc.data() as WellnessMetrics);
       }
-    });
+    }, (error) => handleFirestoreError(error, OperationType.GET, `users/${user.uid}/metrics/current`));
 
     return () => unsubscribe();
   }, [user]);
