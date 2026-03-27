@@ -1,0 +1,58 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "hasCompletedOnboarding": { "type": "boolean" },
+        "onboardingData": {
+          "type": "object",
+          "properties": {
+            "jobRole": { "type": "string" },
+            "typicalWorkHours": { "type": "number" },
+            "stressLevel": { "type": "number" },
+            "fitnessGoals": { "type": "string" },
+            "sleepTarget": { "type": "number" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "hasCompletedOnboarding"]
+    },
+    "WellnessMetrics": {
+      "title": "WellnessMetrics",
+      "description": "Daily wellness and productivity metrics",
+      "type": "object",
+      "properties": {
+        "sleepHours": { "type": "number" },
+        "dailySteps": { "type": "number" },
+        "heartRate": { "type": "number" },
+        "meetings": { "type": "number" },
+        "screenTime": { "type": "number" },
+        "focusTime": { "type": "number" },
+        "emailsSent": { "type": "number" },
+        "lastUpdated": { "type": "string", "format": "date-time" }
+      },
+      "required": ["sleepHours", "dailySteps", "heartRate", "meetings", "screenTime", "focusTime", "emailsSent", "lastUpdated"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile document"
+    },
+    "/users/{userId}/metrics/current": {
+      "schema": "WellnessMetrics",
+      "description": "Current wellness metrics for the user"
+    },
+    "/users/{userId}/history/{date}": {
+      "schema": "WellnessMetrics",
+      "description": "Historical wellness metrics"
+    }
+  }
+}
